@@ -20,7 +20,7 @@ This SDK contains a set of very-basic sample web-applications (HTML + JavaScript
 
 1. Install latest version of SpringCard Companion Service (SN20030) from [www.springcard.com/download/find/file/sn20030](https://www.springcard.com/en/download/find/file/sn20030),
 2. Discover the sample web-applications live on [demo.springcard.com/web-pcsc](https://demo.springcard.com/web-pcsc),
-3. Clone this SDK and create your own application(s) based on the source code of these applications.
+3. Clone this SDK and create your own application(s) based on the source code of these applications and on the documentation of the Companion Service ([docs.springcard.com/books/Companion](https://docs.springcard.com/books/Companion/)).
 
 ## Legal disclaimer
 
