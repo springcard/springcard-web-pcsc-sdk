@@ -12,15 +12,15 @@ Once again, security requirements have been dramatically raised, and modern web 
 
 Anyway a lot of application-providers are still looking for a solution to bridge their web application with PC/SC readers and smart cards. Think for instance of a full-cloud POS software, or an hotel-management SaaS application, that needs to read loyalty cards, or to encode access cards on-the-fly. Think also of a web-based corporate or school applications, where the ability to access the employee's or student's badge would dramatically simplify the user experience, without the complexity and the price of a complete SSO solution.
 
-SpringCard's response to this need is SpringCard Companion, a light-weight, "invisible" application that exposes PC/SC readers -- and other SpringCard devices -- through a REST API and a WebSocket. Provided that the browser's policy allows the web content to connect to `localhost` (`127.0.0.1`), the JavaScript programs may again access smart cards, contactless cards and RFID labels in a seamless way.
+SpringCard's response to this need is **SpringCard Companion Service**, a light-weight, "invisible" application that exposes PC/SC readers -- and other SpringCard devices -- through a REST API and a WebSocket. Provided that the browser's policy allows the web content to connect to `localhost` (`127.0.0.1`), the JavaScript programs may again access smart cards, contactless cards and RFID labels in a seamless way.
 
 This SDK contains a set of very-basic sample web-applications (HTML + JavaScript) to get off to a good start with SpringCard Companion in no time.
 
 **Just follow the steps:**
 
-1. Install latest version of SpringCard Companion Service (SN20030) from [www.springcard.com/download/find/file/sn20030](https://www.springcard.com/en/download/find/file/sn20030),
-2. Discover the sample web-applications live on [demo.springcard.com/web-pcsc](https://demo.springcard.com/web-pcsc),
-3. Clone this SDK and create your own application(s) based on the source code of these applications and on the documentation of the Companion Service ([docs.springcard.com/books/Companion](https://docs.springcard.com/books/Companion/)).
+1. **Install** latest version of SpringCard Companion Service (SN20030) from [www.springcard.com/download/find/file/sn20030](https://www.springcard.com/en/download/find/file/sn20030),
+2. **Discover** the sample web-applications live on [demo.springcard.com/web-pcsc](https://demo.springcard.com/web-pcsc),
+3. Clone this SDK and **create your own application(s)** based on the source code of these applications and on the documentation of the Companion Service ([docs.springcard.com/books/Companion](https://docs.springcard.com/books/Companion/)).
 
 ## Legal disclaimer
 

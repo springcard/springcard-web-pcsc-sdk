@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<!-- Required meta tags -->
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+
+		<!-- Bootstrap CSS -->
+		<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+
+		<title>SpringCard Web PC/SC Demo : WebSocket</title>
+	</head>
+	<body>
+		<div class="container">
+		
+			<h2>SpringCard Web PC/SC Demo : WebSocket</h2>
+			
+			<div>
+				This simple demo uses the <a href="http://docs.springcard.com/books/Companion/WebSocket/" target="_top">Companion Service's WebSocket</a> to get notified of PC/SC events (card inserted, card removed).
+			</div>
+
+			<div>
+				When a card is inserted in a PC/SC contactless reader (NFC/RFID), the demo uses <a href="https://en.wikipedia.org/wiki/JSON-RPC" target="_top">JSON-RPC</a> commands send through the WebSocket to:
+				<ul>
+					<li>Connect to the card in the reader,</li>
+					<li>Send the standard 'GET DATA' APDU (<tt>FFCA000000</tt>) to retrieve the card's UID (protocol-level unique identifier),</li>
+					<li>Disconnect from the card.</li>
+				</ul>
+			</div>
+					
+		</div>
+		
+		<div class="container">
+			<pre id="output"></pre>
+		</div>	
+		
+		<div class="container">
+			<button type="button" class="btn btn-primary visually-hidden" id="clear">Clear</button>
+		</div>		
+		
+		<!-- jQuery -->
+		<script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+		<!-- Bootstrap -->
+		<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>
+		<script>
+	
+$(function() {
+
+	const SpringCardCompanionConfig = {
+		RestUrl: "http://127.0.0.1:3998",
+		WebSocketUrl: "ws://127.0.0.1:3997"
+	};
+			
+	/* The WebSocket object */
+	var ws = false;
+	
+	/* The status of the reader(s) and card(s) */
+	var status = new Object();
+	
+	function clear() {
+		$('#output').text('');
+		$('#clear').addClass('visually-hidden');
+	}
+
+	function output(msg) {
+		console.log(msg);
+		$('#output').append(msg + "\n");
+		$('#clear').removeClass('visually-hidden');
+	}		
+					
+	function h2d(s, w) {
+
+		function add(x, y) {
+			var c = 0, r = [];
+			var x = x.split('').map(Number);
+			var y = y.split('').map(Number);
+			while(x.length || y.length) {
+				var s = (x.pop() || 0) + (y.pop() || 0) + c;
+				r.unshift(s < 10 ? s : s - 10); 
+				c = s < 10 ? 0 : 1;
+			}
+			if(c) r.unshift(c);
+			return r.join('');
+		}
+
+		var dec = '0';
+
+		if (w) {
+			var t = '';
+			while (s.length >= 2) {
+				t += s.substr(s.length - 2);
+				s = s.substr(0, s.length - 2);
+			}
+			s = t;				
+		}
+				
+		s.split('').forEach(function(chr) {
+			var n = parseInt(chr, 16);
+			for(var t = 8; t; t >>= 1) {
+				dec = add(dec, dec);
+				if(n & t) dec = add(dec, '1');
+			}
+		});
+		return dec;
+	}
+					
+	/*
+	 * Send a message through the WebSocket
+	 * ------------------------------------
+	 */
+	function sendWebSocketMessage(message) {
+		if (!ws) {
+			console.log('WebSocket not connected');
+			return;
+		}
+		console.log('Outgoing WebSocket Message: ');
+		console.log(message);
+		ws.send(JSON.stringify(message));
+	}
+
+	/*
+	 * Send a command through the WebSocket
+	 * ------------------------------------
+	 */
+
+	function sendWebSocketCommand(reader_id, command, params) {
+	
+		var message = {
+			jsonrpc: "2.0",
+			method: 'pcsc.reader.' + reader_id + '.' + command,
+			id: reader_id, /* We provide the reader_id as JSON RPC' command ID, so we will be able to associate the (future) response to the right reader */
+			params: params
+		};
+		
+		/* Remember the current command */
+		status[reader_id].pending_command = command;
+				
+		sendWebSocketMessage(message);
+	}		
+	
+	/*
+	 * Run a transaction with a card in the specified reader
+	 * -----------------------------------------------------
+	 */
+	function processReader(reader_name, reader_id) {
+	
+		output('Processing card in ' + reader_name + '...');
+		
+		/* Remember the name of the reader */
+		status[reader_id].name = reader_name;
+		
+		/* 1st step is to connect to the card */
+		sendWebSocketCommand(reader_id, 'connect', null);		 
+	 }
+	
+	
+	/*
+	 * Handle a response to a command
+	 * ------------------------------
+	 */
+	function onWebSocketResponse(reader_id, response) {
+	
+		/* Do we already now the reader? */
+		if (!status[reader_id]) {
+			console.log('ReaderId ' + reader_id + ' is not in our list');
+			return false;
+		}
+
+		/* Are we expecting a response for this reader? */
+		if (!status[reader_id].pending_command) {
+			console.log('No command pending for reader ' + status[reader_id].name);
+			return false;
+		}
+		
+		/* We're not expecting a response anymore */
+		var pending_command = status[reader_id].pending_command;
+		status[reader_id].pending_command = false;			
+
+		console.log('Response for reader ' + status[reader_id].name);
+		console.log(response);
+		
+		if (response.Result == 'success') {
+			if (pending_command == 'connect') {
+				/* We are connected to the card */
+				output('Connected to the card in reader ' + status[reader_id].name);					
+				
+				/* Remember the token */
+				status[reader_id].card_token = response.Token;
+
+				/* We can send our APDU */
+				params = new Object();
+				params.Token = status[reader_id].card_token;
+				params.Command = 'FFCA000000'; /* GET CARD UID APDU */
+				sendWebSocketCommand(reader_id, 'transmit', params);
+			}
+			else if (pending_command == 'transmit') {
+				/* We got a response to our GET CARD UID APDU */
+				output('Got a response from card in reader ' + status[reader_id].name);
+				
+				var response = response.Response;
+				var status_word = response.substr(response.length - 4);
+				var response_data = response.substr(0, response.length - 4);
+				
+				output('\tStatus Word is ' + status_word);
+				
+				/* SW = 0x9000 means success */
+				if (status_word == '9000') {												
+					output('\tCard UID: ' + response_data);
+					output('\tCard UID (decimal, direct) : ' + h2d(response_data, false));
+					output('\tCard UID (decimal, inverse): ' + h2d(response_data, true));						
+				}			
+			
+				/* We may now disconnect from the card */
+				params = new Object();
+				params.Token = status[reader_id].card_token;
+				sendWebSocketCommand(reader_id, 'disconnect', params);
+			}
+			else if (pending_command == 'disconnect') {
+				/* We are disconnected from the card */
+				output('Disconnected from card in reader ' + status[reader_id].name);
+			}
+			else {
+				output('Invalid sequence when working with reader ' + status[reader_id].name);
+			}				
+		}
+		else {
+			output('Error when processing card in reader ' + status[reader_id].name);
+			output('\t' + response.Error);
+		}			
+
+		return true;
+	}
+	
+	/*
+	 * Handle an event
+	 * ---------------
+	 */
+	function onWebSocketEvent(event, params) {
+		
+		if (event == 'Pcsc.Reader.StateChange') {
+			console.log('This is a PC/SC StateChange notification');
+			console.log(params);
+			
+			if (params.Name.toLowerCase().includes('contactless')) {				
+				console.log('The notification comes from a contactless reader');
+
+				/* Make sure we have a record for this reader */
+				if (!status[params.ReaderId])
+					status[params.ReaderId] = new Object();
+
+				if (params.Present) {										
+					console.log('Card present, ATR: ' + params.ATR);
+											
+					if (!status[params.ReaderId].present) {
+						/* This is an insert event */
+						output('Card inserted in reader ' + params.Name);
+						output('\tATR: ' + params.ATR);
+						status[params.ReaderId].present = true;
+						/* Is the card available? */
+						if (params.InUse) {
+							output('\t(the card is already in use)');
+						}
+						else {
+							/* We are ready to process this card right now */
+							status[params.ReaderId].processed = true;
+							processReader(params.Name, params.ReaderId);
+						}														
+					}
+					else {
+						/* This is only a state change */
+						if (params.InUse) {
+							/* The card is already in use, leave it alone */
+							output('Card status change for reader ' + params.Name);
+							output('\t(the card is in use)');
+						}
+						else {
+							/* The card is no more in use */
+							output('Card status change for reader ' + params.Name);
+							output('\t(the card is available)');
+							
+							if (!status[params.ReaderId].processed) {
+								/* We may now process this card */
+								status[params.ReaderId].processed = true;
+								processReader(params.Name, params.ReaderId);
+							}
+						}
+					}
+					
+				}
+				else {
+					console.log('Card absent');
+					
+					if (status[params.ReaderId].present) {
+						/* This is a remove event */
+						output('Card removed from reader ' + params.Name);
+						/* Reset the status of this reader */
+						status[params.ReaderId] = new Object();
+					}
+				}
+
+				/* The event has been fully handled */
+				return true;
+			}
+		}
+		
+		return false;
+	}
+
+	/*
+	 * Handle a message coming from the WebSocket
+	 * ------------------------------------------
+	 */
+	function onWebSocketMessage(message) {
+		console.log('Incoming WebSocket Message: ');
+		console.log(message);
+
+		var json = JSON.parse(message.data);
+
+		if (json.event) {
+			if (!onWebSocketEvent(json.event, json.params))
+				console.log('Discarded unhandled event');
+		}
+		
+		if (json.result) {
+			if (!onWebSocketResponse(json.id, json.result))
+				console.log('Discarded unexpected response');
+		}
+	}
+	
+	/*
+	 * Connect to the WebSocket
+	 * ------------------------
+	 */
+	function connect() {		
+		output('Connecting to the WebSocket...');
+		
+		try {
+		
+			ws = new WebSocket(SpringCardCompanionConfig.WebSocketUrl);
+			
+			ws.onerror = function(error) {
+				console.log('WebSocket error: ' + error);
+				output('Can\'t connect to WebSocket, please verify that the Companion Service is running and refresh the page.');
+				ws = false;
+			}
+			
+			ws.onopen = function(event) {
+				console.log('WebSocket is open');
+				output('Connected to te WebSocket, waiting for events.');
+			}
+			
+			ws.close = function(event) {
+				console.log('WebSocket has been closed');
+				output('WebSocket has been closed');
+				ws = false;
+			}
+			
+			ws.onmessage = function(message) {
+				console.log('WebSocket recv: ' + message);				
+				onWebSocketMessage(message);
+			}
+		
+		} catch (exception) {
+				console.log('WebSocket exception: ' + exception);
+				output('WebSocket exception: ' + exception);
+		}
+	}		
+
+	connect();
+	
+	/*
+	 * Handler for "clear" button
+	 * --------------------------
+	 */
+	$('#clear').click(function() {			
+		clear();
+	});		
+});
+	
+		</script>
+	</body>
+</html>

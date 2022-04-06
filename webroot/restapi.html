@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<!-- Required meta tags -->
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+
+		<!-- Bootstrap CSS -->
+		<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+
+		<title>SpringCard Web PC/SC Demo : REST API</title>
+	</head>
+	<body>
+		<div class="container">
+		
+			<h2>SpringCard Web PC/SC Demo : REST API</h2>
+			
+			<div>
+				This simple demo uses the <a href="http://docs.springcard.com/books/Companion/REST_API/PCSC/" target="_top">Companion Service's REST API</a> to:
+				<ul>
+					<li>List get the list of PC/SC readers,</li>
+					<li>Find a contactless (NFC/RFID) reader,</li>
+					<li>Connect to the card that may be present on this reader,</li>
+					<li>Send the standard 'GET DATA' APDU (<tt>FFCA000000</tt>) to retrieve the card's UID (protocol-level unique identifier).</li>
+				</ul>
+			</div>
+			
+			<div>
+				Connect a contactless PC/SC coupler to your computer, place a card on its antenna, and click 'Read UID' to start.
+			</div>
+			
+			<div>
+				<button type="button" class="btn btn-primary" id="tryme">Read UID</button>
+			</div>
+		</div>
+		
+		<div class="container">
+			<pre id="output"></pre>
+		</div>	
+
+		<!-- jQuery -->
+		<script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+		<!-- Bootstrap -->
+		<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>
+		<script>
+	
+$(function() {
+
+	const SpringCardCompanionConfig = {
+		RestUrl: "http://127.0.0.1:3998",
+		WebSocketUrl: "ws://127.0.0.1:3997"
+	};
+	
+	function clear() {
+		$('#output').text('');
+	}
+
+	function output(msg) {
+		console.log(msg);
+		$('#output').append(msg + "\n");
+	}		
+	
+	function h2d(s, w) {
+
+		function add(x, y) {
+			var c = 0, r = [];
+			var x = x.split('').map(Number);
+			var y = y.split('').map(Number);
+			while(x.length || y.length) {
+				var s = (x.pop() || 0) + (y.pop() || 0) + c;
+				r.unshift(s < 10 ? s : s - 10); 
+				c = s < 10 ? 0 : 1;
+			}
+			if(c) r.unshift(c);
+			return r.join('');
+		}
+
+		var dec = '0';
+
+		if (w) {
+			var t = '';
+			while (s.length >= 2) {
+				t += s.substr(s.length - 2);
+				s = s.substr(0, s.length - 2);
+			}
+			s = t;				
+		}
+				
+		s.split('').forEach(function(chr) {
+			var n = parseInt(chr, 16);
+			for(var t = 8; t; t >>= 1) {
+				dec = add(dec, dec);
+				if(n & t) dec = add(dec, '1');
+			}
+		});
+		return dec;
+	}
+					
+	/*
+	 * Try processing a card in a reader
+	 * ---------------------------------
+	 */
+	function processReader(reader_name, reader_id) {
+	
+		output('Looking for a card in ' + reader_name + '...');
+
+		/* Connect to the card that is (or may be) in this reader - The method is a POST */
+		$.post({
+			url: SpringCardCompanionConfig.RestUrl + '/pcsc/reader/' + reader_id + '/connect',
+			success: function(data) {
+
+				/* The response is a JSON object */
+				console.log(data);						
+				if (data.Result == 'success') {
+					/* Connected to the card! */							
+					output('Connected to a card in reader ' + reader_name);
+					output('\tATR: ' + data.ATR);
+					output('\tProtocol: ' + data.Protocol);
+					output('\tToken: ' + data.Token);
+					
+					/* We must remember the token, this is our handle to access the card (and disconnect it afterwards) */
+					var card_token = data.Token;
+					
+					/* Prepare the parameters - we need the token and the APDU */
+					var params = new Object();
+					params.Token = card_token;
+					params.Command = 'FFCA000000'; /* GET CARD UID APDU */
+					
+					/* Send the APDU to the card using a Transmit call */
+					$.post({
+						url: SpringCardCompanionConfig.RestUrl + '/pcsc/reader/' + reader_id + '/transmit',
+						data: JSON.stringify(params),
+						success: function(data) {
+						
+							/* The response is a JSON object */
+							console.log(data);
+																	
+							if (data.Result == 'success') {
+																
+								output('Got a response from card in reader ' + reader_name);
+								
+								var response = data.Response;
+								var status_word = response.substr(response.length - 4);
+								var response_data = response.substr(0, response.length - 4);
+								
+								output('\tStatus Word is ' + status_word);
+								
+								/* SW = 0x9000 means success */
+								if (status_word == '9000') {												
+									output('\tCard UID: ' + response_data);
+									output('\tCard UID (decimal, direct) : ' + h2d(response_data, false));
+									output('\tCard UID (decimal, inverse): ' + h2d(response_data, true));
+								}
+							}
+							else {
+								output('Error ' + data.Message + ' for reader ' + reader_name);
+							}										
+							
+						}
+					}).always(function() {
+					
+						/* Always disconnect from the card */
+						output('Disconnecting from card in reader ' + reader_name);
+
+						var params = new Object();
+						params.Token = card_token;											
+						
+						$.post({
+							url: SpringCardCompanionConfig.RestUrl + '/pcsc/reader/' + reader_id + '/disconnect',
+							data: JSON.stringify(params),
+							success: function(data) {
+							
+								/* We don't care for the result... */
+								console.log(data);
+							}
+						});
+						
+					});
+					
+				}
+				else if (data.Error == 'SCARD_W_REMOVED_CARD') {
+					output('No card in reader ' + reader_name);
+				}
+				else {
+					output('Error ' + data.Error + ' for reader ' + reader_name);
+				}						
+			}
+		}).fail(function(error) {
+			console.log(error);
+			output('Request failed for reader ' + reader_name + ':' + error.status + ' ' + error.statusText);
+		});
+	}		
+	
+	/*
+	 * Do the job
+	 * ----------
+	 */
+	function process() {		
+		output('Retrieving the list of PC/SC readers...');
+		
+		/* Get the list of readers - The method is a GET */
+		$.get({
+			url: SpringCardCompanionConfig.RestUrl + '/pcsc/readers',
+			success: function(data) {
+
+				/* The list of reader is a JSON object, with the reader names in the Names array and the ReaderIds in another array */				
+				console.log(data);					
+				output('Found ' + data.Names.length + ' PC/SC reader(s)');					
+				
+				/* Show all readers and add contactless readers to the nfc_readers associative array */
+				var nfc_readers = new Array();						
+				for (var i=0; i<data.Names.length; i++) {
+					output('\t' + data.Names[i]);
+					
+					/* Get the IDs of the contactless reader(s) */
+					if (data.Names[i].toLowerCase().includes('contactless')) {
+						console.log(data.Names[i] + ' is a contactless reader, its ID is ' + data.ReaderIds[i]);
+						nfc_readers[data.Names[i]] = data.ReaderIds[i];
+					}
+				}
+				
+				/* Show the count of contactless readers */
+				output('Found ' + Object.keys(nfc_readers).length + ' contactless reader(s)');
+				
+				/* Iterate through all the contactless readers */
+				for (var reader_name in nfc_readers) {
+					var reader_id = nfc_readers[reader_name];
+					processReader(reader_name, reader_id);
+				}
+			}
+		}).fail(function(error) {
+			console.log(error);
+			output('Request failed: ' + error.status + ' ' + error.statusText);
+		});	
+	}		
+
+	/*
+	 * Handler for "try me!" button
+	 * ----------------------------
+	 */
+	$('#tryme').click(function() {			
+		clear();
+		process();
+	});
+});
+	
+		</script>
+	</body>
+</html>
